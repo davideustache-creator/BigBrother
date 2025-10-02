@@ -54,42 +54,59 @@ def connect_to_redis():
             logging.warning(f"Connexion à Redis échouée, nouvelle tentative dans 5 secondes... Erreur: {e}")
             time.sleep(5)
 
+# Dans agents/agent_github.py
+
+# ... (gardez les autres fonctions et la configuration)
+
 def process_and_store_event(event, session, redis_client):
     """Transforme un événement GitHub et le stocke dans Cassandra et Redis."""
     try:
-        # --- Transformation des données ---
+        # --- Transformation des données de base ---
         event_id = event['id']
         event_type = event['type']
         author = event.get('actor', {}).get('login', 'N/A')
         repo_name = event.get('repo', {}).get('name', 'N/A')
         created_at_str = event.get('created_at', '')
         
-        # Conversion de la date
         event_time = datetime.strptime(created_at_str, "%Y-%m-%dT%H:%M:%SZ")
         event_date = event_time.strftime("%Y-%m-%d")
 
+        # --- Enrichissement avec les messages de commit (si c'est un PushEvent) ---
+        commit_messages = []
+        if event_type == 'PushEvent' and 'commits' in event.get('payload', {}):
+            for commit in event['payload']['commits']:
+                # On prend le message complet pour le contenu
+                commit_messages.append(commit.get('message', ''))
+        
+        # Concaténation des messages pour le contenu cherchable
+        full_content_text = " ".join(commit_messages)
+
+        # --- Création des champs finaux ---
         title = f"{event_type} par {author} sur {repo_name}"
         content_url = f"https://github.com/{repo_name}"
-        
-        # --- Stockage dans Cassandra (pour l'archivage) ---
+        # Le contenu cherchable inclut le titre et les messages de commit
+        searchable_content = f"{title}. {full_content_text}"
+
+        # --- Stockage dans Cassandra (le schéma ne change pas) ---
         cql_query = session.prepare("""
             INSERT INTO events (source, event_date, event_time, event_id, event_type, author, title, content_url)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """)
         session.execute(cql_query, ('github', event_date, event_time, event_id, event_type, author, title, content_url))
         
-        # --- Indexation dans Redis (pour la recherche temps réel) ---
+        # --- Indexation dans Redis (avec le nouveau champ 'content') ---
         redis_key = f"event:github:{event_id}"
         redis_hash_data = {
             'title': title,
+            'content': searchable_content, # <-- On remplit le nouveau champ
             'author': author,
+
             'source': 'github',
-            'content_url': content_url,
-            'event_time': int(event_time.timestamp()) # Stocker le timestamp
+            'event_time': int(event_time.timestamp())
         }
         redis_client.hset(redis_key, mapping=redis_hash_data)
         
-        logging.info(f"Événement traité et stocké : {title}")
+        logging.info(f"Événement traité et stocké (avec contenu) : {event_id}")
 
     except Exception as e:
         logging.error(f"Erreur lors du traitement de l'événement {event.get('id', 'N/A')}: {e}")

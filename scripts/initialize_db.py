@@ -36,27 +36,36 @@ def create_cassandra_schema(session):
     print("Table 'events' créée ou déjà existante.")
 
 def create_redisearch_index(client):
-    """Crée l'index RediSearch pour les événements."""
-    print("Création de l'index RediSearch...")
+    """Crée ou recrée l'index RediSearch pour s'assurer qu'il est à jour."""
+    print("Mise à jour de l'index RediSearch...")
+    
     index_name = 'idx:events'
     key_prefix = 'event:'
+    
+    # Le schéma à jour que nous voulons
     schema = (
-        TextField("title", weight=5.0), 
-        TextField("content"), # <-- LIGNE AJOUTÉE
-        TagField("author"), 
+        TextField("title", weight=5.0),
+        TextField("content"),
+        TagField("author"),
         TagField("source"),
-        TextField("content_url"), 
         NumericField("event_time", sortable=True)
     )
+        
     definition = IndexDefinition(prefix=[key_prefix], index_type=IndexType.HASH)
+
+    # --- NOUVELLE LOGIQUE : On supprime l'index s'il existe ---
     try:
-        client.ft(index_name).create_index(fields=schema, definition=definition)
-        print(f"Index RediSearch '{index_name}' créé.")
-    except ResponseError as e:
-        if "Index already exists" in str(e):
-            print(f"L'index RediSearch '{index_name}' existe déjà.")
-        else:
-            raise e
+        client.ft(index_name).dropindex(delete_documents=True)
+        print(f"Ancien index '{index_name}' trouvé et supprimé.")
+    except ResponseError:
+        # C'est normal si l'index n'existait pas au premier lancement
+        print(f"Aucun index existant '{index_name}' à supprimer.")
+    
+    # --- On crée le nouvel index avec le schéma à jour ---
+    print(f"Création du nouvel index '{index_name}'...")
+    client.ft(index_name).create_index(fields=schema, definition=definition)
+    print(f"Index RediSearch '{index_name}' créé avec le dernier schéma.")
+
 
 def main():
     print("--- Démarrage de l'initialisation des bases de données ---")

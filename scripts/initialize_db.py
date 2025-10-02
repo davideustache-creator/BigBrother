@@ -2,7 +2,7 @@
 
 import time
 import redis
-from cassandra.cluster import Cluster
+from cassandra.cluster import Cluster # Assurez-vous que le paquet python-cassandra-driver est installé : pip install cassandra-driver
 from cassandra.protocol import ProtocolException
 from redis.exceptions import ResponseError
 
@@ -41,8 +41,12 @@ def create_redisearch_index(client):
     index_name = 'idx:events'
     key_prefix = 'event:'
     schema = (
-        TextField("title", weight=5.0), TagField("author"), TagField("source"),
-        TextField("content_url"), NumericField("event_time", sortable=True)
+        TextField("title", weight=5.0), 
+        TextField("content"), # <-- LIGNE AJOUTÉE
+        TagField("author"), 
+        TagField("source"),
+        TextField("content_url"), 
+        NumericField("event_time", sortable=True)
     )
     definition = IndexDefinition(prefix=[key_prefix], index_type=IndexType.HASH)
     try:

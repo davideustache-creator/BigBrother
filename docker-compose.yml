@@ -1,0 +1,68 @@
+# docker-compose.yml (version révisée avec services séparés)
+
+version: '3.8'
+
+services:
+  # Service pour Cassandra (inchangé)
+  cassandra:
+    image: cassandra:latest
+    container_name: cassandra
+    ports:
+      - "9042:9042"
+    volumes:
+      - cassandra_data:/var/lib/cassandra
+    environment:
+      - CASSANDRA_CLUSTER_NAME=BigBrotherCluster
+      - CASSANDRA_DATACENTER=dc1
+      - CASSANDRA_RACK=rack1
+    healthcheck:
+      test: ["CMD", "cqlsh", "-e", "describe keyspaces"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  # NOUVEAU : Service Redis avec RediSearch (remplace redis-stack)
+  redis-search:
+    image: redislabs/redisearch:latest
+    container_name: redis-search
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # NOUVEAU : Service dédié pour l'interface RedisInsight
+  redis-insight:
+    image: redis/redisinsight:latest
+    container_name: redis-insight
+    ports:
+      - "8001:5540" # On expose le port 5540 sur votre machine
+    volumes:
+      - redis_insight_data:/data
+    depends_on:
+      - redis-search
+
+  # Service applicatif (mis à jour pour dépendre de redis-search)
+  app:
+    build: .
+    container_name: bigbrother-app
+    env_file: .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    depends_on:
+      cassandra:
+        condition: service_healthy
+      redis-search:
+        condition: service_healthy # Attend que redis-search soit prêt
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+volumes:
+  cassandra_data:
+  redis_data:
+  redis_insight_data: # Nouveau volume pour RedisInsight

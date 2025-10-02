@@ -1,0 +1,14 @@
+# requirements.txt
+
+# --- Backend Web ---
+fastapi
+uvicorn[standard]
+websockets
+
+# --- Bases de Données ---
+cassandra-driver
+redis>=5.0.0      # On force une version 5.0 ou supérieure
+
+# --- Collecte de Données ---
+requests
+sseclient-py
